@@ -1,46 +1,27 @@
-ARG ELECTRS_VERSION=0.4.1
-ARG ELECTRS_COMMIT=2f8759e940a3fe56002d653c29a480ed3bffa416                
-ARG USER=electrs
-ARG UID=1000
-ARG GID=1000
-ARG DIR=/srv/electrs
+FROM rust:1.65.0-slim as BUILD
 
-FROM rust:1.44.1-slim as BUILD   
+LABEL maintainer="Max Karou <makarou@hotmail.com>"
+
+ARG COMMIT=ce83749cc1c1bf9f56e62275d067c4391052238f
+ARG REPO=https://github.com/mxnkarou/electrs.git
                                                
 SHELL ["/bin/bash", "-c"]
 
 RUN apt-get -yqq update \                                                                     
  && apt-get -yqq upgrade \                     
  && apt-get -yqq install clang cmake curl git \ 
- && mkdir -p /srv/electrs{_bitcoin,_liquid} \
- && git clone --no-checkout https://github.com/blockstream/electrs.git \
+ && git clone --no-checkout ${REPO} \
  && cd electrs \
- && git checkout $ELECTRS_COMMIT \
- #&& cp contrib/popular-scripts.txt /srv/electrs_bitcoin \
- && cargo install --root /srv/electrs_bitcoin --locked --path . --features electrum-discovery \
- #&& cargo install --root /srv/electrs_liquid --locked --path . --features electrum-discovery,liquid \
- && cd .. \
- && rm -fr /root/.cargo electrs \
- && strip /srv/electrs_*/bin/electrs \
- && apt-get --auto-remove remove -yqq --purge clang cmake manpages curl git \
- && apt-get clean \
- && apt-get autoclean \
- && rm -rf /usr/share/doc* /usr/share/man /usr/share/postgresql/*/man /var/lib/apt/lists/* /var/cache/* /tmp/* /root/.cache /*.deb /root/.cargo
+ && git checkout ${COMMIT} \
+ && cargo build --release --bin electrs
 
-FROM debian:buster@sha256:46d659005ca1151087efa997f1039ae45a7bf7a2cbbe2d17d3dcbda632a3ee9a
+FROM debian:bullseye-slim
 
-SHELL ["/bin/bash", "-c"]
+COPY --from=BUILD /electrs/target/release/electrs /bin/electrs
 
-COPY --from=BUILD /srv/electrs_bitcoin /srv/electrs
-
-#RUN addgroup --gid $GID $USER
-RUN adduser --disabled-login --system --shell /bin/false --home /srv/electrs --uid $UID $USER
-USER $USER
-WORKDIR $DIR
-
-EXPOSE 50001 3000 4224
+# Electrum RPC Mainnet
+EXPOSE 60401 24224 3002
 
 STOPSIGNAL SIGINT
 
-#Placeholder
-ENTRYPOINT ["/bin/sh"]
+ENTRYPOINT ["electrs", "--network", "regtest", "--daemon-rpc-addr", "host.docker.internal:18443", "-vvvv"]
